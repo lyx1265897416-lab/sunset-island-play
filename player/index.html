@@ -160,7 +160,7 @@ function apply(eff){ for (const [k,v] of Object.entries(eff||{})) { if (S.stats.
 function variant(n){ const vs=n.variants||[]; if(vs.includes('W4')||vs.includes('W5')) return V.outfit==='C'?'W5':'W4'; if(vs.includes('W7')||vs.includes('W8')) return V.outfit7==='red'?'W7':'W8'; return vs[0]||'none'; }
 function idleOf(n){ if(!n.idle) return null; if(typeof n.idle==='string') return n.idle; return n.idle[variant(n)]||Object.values(n.idle)[0]; }
 function media(n){ const v=variant(n); return n.media[v]||Object.values(n.media)[0]; }
-function swap(src, loop){ const b = front===va?vb:va; b.src='../'+src; b.loop=!!loop; b.muted=false;
+function swap(src, loop){ const b = front===va?vb:va; b.src=/^https?:/.test(src)?src:'../'+src; b.loop=!!loop; b.muted=false;
   $('#loading').style.display='block';
   return b.play().then(()=>{ $('#loading').style.display='none'; b.classList.add('on'); front.classList.remove('on'); front.pause(); front=b;
     if(!loop&&window.RT) RT.begin({key:'node:'+cur, parts:[{v:b, d:b.duration}], free:true}); }); }

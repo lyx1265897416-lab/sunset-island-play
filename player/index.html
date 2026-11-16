@@ -160,9 +160,27 @@ function apply(eff){ for (const [k,v] of Object.entries(eff||{})) { if (S.stats.
 function variant(n){ const vs=n.variants||[]; if(vs.includes('W4')||vs.includes('W5')) return V.outfit==='C'?'W5':'W4'; if(vs.includes('W7')||vs.includes('W8')) return V.outfit7==='red'?'W7':'W8'; return vs[0]||'none'; }
 function idleOf(n){ if(!n.idle) return null; if(typeof n.idle==='string') return n.idle; return n.idle[variant(n)]||Object.values(n.idle)[0]; }
 function media(n){ const v=variant(n); return n.media[v]||Object.values(n.media)[0]; }
-function swap(src, loop){ const b = front===va?vb:va; b.src=/^https?:/.test(src)?src:'../'+src; b.loop=!!loop; b.muted=false;
-  $('#loading').style.display='block';
-  return b.play().then(()=>{ $('#loading').style.display='none'; b.classList.add('on'); front.classList.remove('on'); front.pause(); front=b;
+/* 预载：一组播放器轮换用。每段开播后，把它结束后可能接的片段（待机循环、下一节点、每个选项的去向）提前在后台静音慢放缓冲（data-warm），
+   片段结束时直接切到已缓冲好的那个，不再现下现播。CDN 不给跨域下载，所以用 <video> 自己缓冲。 */
+const POOL=[va,vb];
+for(let i=0;i<5;i++){ const e=document.createElement('video'); e.setAttribute('playsinline',''); e.playsInline=true; e.preload='auto'; vb.after(e); POOL.push(e); }
+let WANT=new Set();
+const absu=s=>/^https?:/.test(s)?s:new URL('../'+s, location.href).href;
+const elFor=u=>POOL.find(e=>e.dataset.u===u);
+function spare(){ return POOL.filter(e=>e!==front&&!WANT.has(e.dataset.u)).sort((a,b)=>(+a.dataset.t||0)-(+b.dataset.t||0))[0]||POOL.find(e=>e!==front); }
+function warm(src){ if(!src) return; const u=absu(src); if(elFor(u)) return; const e=spare(); if(!e) return;
+  e.dataset.u=u; e.dataset.t=Date.now(); e.dataset.warm='1'; e.muted=true; e.loop=false; e.src=u; e.playbackRate=0.07; const p=e.play(); if(p) p.catch(()=>{}); }
+function target(id, eff){ const save=V; V=Object.assign({},V); apply(eff); let n=S.nodes[id], g=0;
+  while(n&&n.route&&!Object.keys(n.media||{}).length&&g++<8){ const r=n.route.find(r=>cond(r.if)); n=S.nodes[r?r.goto:n.next]; }
+  const m=n&&n.media&&Object.keys(n.media).length?media(n):null; V=save; return m; }
+function plan(id){ const n=S.nodes[id]; if(!n||cur!==id) return; const L=[];
+  if(n.qte||n.choice){ L.push(idleOf(n)); if(n.choice) n.choice.options.filter(x=>cond(x.cond)).forEach(x=>L.push(target(x.goto,x.effects))); if(n.qte) L.push(target(n.qte.goto,n.qte.effects)); }
+  else { const r=n.route&&n.route.find(r=>cond(r.if)); L.push(target(r?r.goto:n.next,{})); }
+  const want=L.filter(Boolean).slice(0,5); WANT=new Set(want.map(absu)); want.forEach(warm); }
+function swap(src, loop){ const u=absu(src); let b=elFor(u); if(!b||b===front){ b=spare(); b.dataset.u=u; b.src=u; }
+  delete b.dataset.warm; b.dataset.t=Date.now(); b.pause(); try{ b.currentTime=0; }catch(e){} b.loop=!!loop; b.muted=false;
+  if(b.readyState<3) $('#loading').style.display='block';
+  return b.play().then(()=>{ $('#loading').style.display='none'; b.classList.add('on'); const old=front; front=b; old.classList.remove('on'); old.pause(); old.muted=true;
     if(!loop&&window.RT) RT.begin({key:'node:'+cur, parts:[{v:b, d:b.duration}], free:true}); }); }
 function cap(){ const n=S.nodes[cur], box=$('#cap'); if(!n||mode!=='play'||!cc||uiUp){ box.innerHTML=''; return; }
   const cs=Array.isArray(n.captions)?n.captions:((n.captions||{})[variant(n)]||Object.values(n.captions||{})[0]||[]); const tt=front.currentTime, c=cs.find(c=>tt>=c.s-.05&&tt<=c.e+.2); if(!c){ box.innerHTML=''; return; }
@@ -198,7 +216,7 @@ function go(id){ const n=S.nodes[id]; if(!n) return; cur=id; uiUp=false; hideUI(
   if(n.route&&!Object.keys(n.media).length){ const r=n.route.find(r=>cond(r.if)); return go(r?r.goto:n.next); }
   if(n.rcard&&!Object.keys(n.media).length){ mode='end'; return showRCard(n); }
   const src=media(n); if(!src){ mode='missing'; return showMissing(n); }
-  mode='play'; swap(src,false).catch(()=>{}); }
+  mode='play'; swap(src,false).catch(()=>{}); setTimeout(()=>plan(id),1200); }
 function after(){ const n=S.nodes[cur]; if(!n) return;
   if(n.qte||n.choice){ const il=idleOf(n); if(il) swap(il,true).catch(()=>{}); if(!uiUp){ n.qte?showQTE(n):showChoice(n); } mode='wait'; return; }
   if(n.route){ const r=n.route.find(r=>cond(r.if)); if(r) return jump(r.goto); }
@@ -245,7 +263,7 @@ function renderMenu(){ const Z=LANG==='zh', curEp=cur&&S.nodes[cur]?S.nodes[cur]
     ['#start','#endc','#rcard'].forEach(q=>$(q).style.display='none'); front.pause(); go(e.start); }); }
 $('#bmenu').onclick=e=>{e.stopPropagation(); if(mode==='play') front.pause(); renderMenu(); $('#menu').classList.add('on');};
 $('#menuback').onclick=e=>{e.stopPropagation(); $('#menu').classList.remove('on'); if(mode==='play') front.play();};
-[va,vb].forEach(v=>v.addEventListener('ended',()=>{ if(v===front&&mode==='play') after(); }));
+POOL.forEach(v=>v.addEventListener('ended',()=>{ if(v===front&&mode==='play') after(); }));
 $('#bcc').onclick=e=>{e.stopPropagation(); cc=!cc; $('#bcc').classList.toggle('off',!cc);};
 function hearts(x){ const n=Math.max(0,Math.min(5,Math.round((x||0)/2))); return '♥'.repeat(n)+'♡'.repeat(5-n); }
 function renderAff(tab){ $('#th').classList.toggle('on',tab==='h'); $('#tw').classList.toggle('on',tab==='w'); const b=$('#affbody');
@@ -260,7 +278,8 @@ const FR=document.querySelector('#frame'); FR.addEventListener('scroll',()=>{ if
 fetch('story.json?'+Date.now()).then(r=>r.json()).then(d=>{ S=d; V=Object.assign({},d.vars);
   $('#afflbl').textContent=t('aff'); $('#go').textContent=t('play'); $('#hint0').textContent=t('hint'); $('#sub').textContent=LANG==='zh'?d.title_zh:'';
   $('#start').style.backgroundImage="url('poster.jpg')";
-  $('#go').onclick=e=>{ e.stopPropagation(); $('#start').style.display='none'; go(Q.get('node')||d.start); };
+  $('#go').onclick=e=>{ e.stopPropagation(); $('#start').style.display='none'; POOL.forEach(v=>{ if(!v.dataset.u){ const p=v.play(); if(p) p.catch(()=>{}); } }); go(Q.get('node')||d.start); };
+  { const n0=S.nodes[Q.get('node')||d.start]; if(n0&&n0.media&&Object.keys(n0.media).length) warm(media(n0)); }  // 首段在封面页就开始缓冲
   RT.init({drama:'choose-me-before-sunset', stage:'#frame', zh:()=>LANG==='zh', isPlaying:()=>mode==='play'&&!uiUp, ignore:'#top,#qte,#choice,#ring,.sheet,.screen,#meet,#menu,#rcard'});
   requestAnimationFrame(tick); });
 </script>

@@ -203,8 +203,8 @@ function plan(id){ const n=S.nodes[id]; if(!n||cur!==id) return; const L=[];
   if(n.qte||n.choice){ L.push(idleOf(n)); if(n.choice) n.choice.options.filter(x=>cond(x.cond)).forEach(x=>L.push(target(x.goto,x.effects))); if(n.qte) L.push(target(n.qte.goto,n.qte.effects)); }
   else { const r=n.route&&n.route.find(r=>cond(r.if)); L.push(target(r?r.goto:n.next,{})); }
   const want=L.filter(Boolean).slice(0,5); WANT=new Set(want.map(absu));
-  POOL.forEach(e=>{ if(e===front||!e.dataset.u||WANT.has(e.dataset.u)) return; e.pause();  // 不再需要的预载停掉；没下完的直接中止下载（暂停后浏览器仍会继续下，和当前片抢带宽）
-    if(e.dataset.warm&&bufEnd(e)<(e.duration||1e9)-0.3){ e.removeAttribute('src'); delete e.dataset.u; delete e.dataset.warm; e.load(); } });
+  POOL.forEach(e=>{ if(e===front||!e.dataset.warm||WANT.has(e.dataset.u)) return; e.pause();  // 不再需要的预载停掉；没下完的直接中止下载（暂停后浏览器仍会继续下，和当前片抢带宽）。只动后台预载（data-warm），正在换上来的那个不碰
+    if(bufEnd(e)<(e.duration||1e9)-0.3){ e.removeAttribute('src'); delete e.dataset.u; delete e.dataset.warm; e.load(); } });
   QUEUE=want.filter(u=>{ const e=elFor(absu(u)); return !(e&&warmDone(e)); }); }
 function swap(src, loop){ const u=absu(src); let b=elFor(u); if(!b||b===front){ b=spare(); b.dataset.u=u; b.src=u; }
   delete b.dataset.warm; b.dataset.t=Date.now(); b.pause(); try{ b.currentTime=0; }catch(e){} b.playbackRate=b.defaultPlaybackRate||1; b.loop=!!loop; b.muted=false;
